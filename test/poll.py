@@ -12,8 +12,8 @@ if __name__ == "__main__":
         format='%(asctime)s %(process)d %(filename)s %(lineno)d %(levelname)s #| %(message)s',
         datefmt='%H:%M:%S')
 
-    amity.Client(host='10.1.3.20', username='monast', secret='tsanom', events=True)
-    amity.Client(host='67.52.219.10', username='admin', secret='amp111', events=True)
+    amity.Client(host='testserver1', username='monast', secret='tsanom', events=True)
+    amity.Client(host='testserver2', username='admin', secret='amp111', events=True)
 
     tornado.ioloop.IOLoop.instance().start()
 
