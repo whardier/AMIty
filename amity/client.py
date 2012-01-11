@@ -25,11 +25,33 @@ import tornado.stack_context
 from hashlib import md5
 
 from errors import InterfaceError
-from common import COMMANDALIAS
+from common import COMMANDALIAS, KEYALIAS, VALUEALIAS, VALUENEVERALIAS
 
 DEBUG = True
 
 tornado.httpclient.AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") #very sexy
+
+class Request(object):
+    def __init__(self, action=None, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
+        assert isinstance(action, (str, unicode, None.__class__))
+        assert isinstance(retry, bool)
+        assert isinstance(distinct_action, bool)
+        assert isinstance(distinct_action_kwargs, bool)
+
+        self.action = action
+        self.retry = retry
+        self.distinct_action = distinct_action
+        self.distinct_action_kwargs = distinct_action_kwargs
+        self.actionid = str(uuid.uuid1())
+        self.kwargs = {}
+
+        for kw, value in kwargs.iteritems():
+            kw = KEYALIAS.get(kw, kw)
+            if kw not in VALUENEVERALIAS:
+                value = VALUEALIAS.get(value, value)
+            self.kwargs[kw] = value
+
+        print self.action, self.kwargs
 
 class AJAMClient(object):
     r""""""
@@ -268,3 +290,6 @@ class AJAMClient(object):
             self._authenticated = False
         else:
             self._alive = False
+
+    def _handle_request_queue(self, response):
+        pass

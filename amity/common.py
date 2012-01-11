@@ -1,11 +1,21 @@
 #!/usr/bin/env python
 
-HEADERS = ( 'Account', 'Action', 'ActionID', 'AOCBillingId', 'Application', 'Async', 'AuthType', 'CallerID', 
+KEYS = ( 'Account', 'Action', 'ActionID', 'AOCBillingId', 'Application', 'Async', 'AuthType', 'CallerID', 
 'Category', 'Cause', 'Channel', 'ChannelPrefix', 'ChargeType', 'ChargingAssociationId', 'ChargingAssociationNumber', 
 'ChargingAssociationPlan', 'Codecs', 'Command', 'Context', 'CurrencyAmount', 'CurrencyMultiplier', 'CurrencyName', 
 'Data', 'DstFilename', 'EventMask', 'Events', 'Exten', 'ExtraChannel', 'ExtraContext', 'ExtraExten', 'ExtraPriority', 
 'Filename', 'Key', 'LoadType', 'Mailbox', 'MD5', 'Message', 'Module', 'MsgType', 'Priority', 'Reload', 'Secret', 
 'SrcFilename', 'SuppressEvents', 'Timeout', 'TotalType', 'UserEvent', 'Username', 'Value', 'Variable', 'Variables', )
+
+KEYALIAS = {}
+for key in KEYS: KEYALIAS[key.lower()] = key
+
+VALUES = ()
+
+VALUEALIAS = {}
+for value in VALUES: VALUEALIAS[value.lower()] = value
+
+VALUENEVERALIAS = ('Username', 'Secret',)
 
 COMMANDS = ( 'AbsoluteTimeout', 'AgentLogoff', 'Agents', 'AGI', 'AOCMessage', 'Atxfer', 'Bridge', 'Challenge', 
 'ChangeMonitor', 'Command', 'CoreSettings', 'CoreShowChannels', 'CoreStatus', 'CreateConfig', 'DAHDIDialOffhook', 
