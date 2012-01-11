@@ -31,18 +31,25 @@ DEBUG = True
 
 tornado.httpclient.AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") #very sexy
 
+def GenerateActionID():
+    return str(uuid.uuid1())
+
 class Request(object):
-    def __init__(self, action=None, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
+    def __init__(self, action=None, key=None, key_max=1, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
         assert isinstance(action, (str, unicode, None.__class__))
+        assert isinstance(key, (str, unicode))
+        assert isinstance(key_max, int)
         assert isinstance(retry, bool)
         assert isinstance(distinct_action, bool)
         assert isinstance(distinct_action_kwargs, bool)
 
         self.action = action
+        self.key = key
+        self.key_max = key_max
         self.retry = retry
         self.distinct_action = distinct_action
         self.distinct_action_kwargs = distinct_action_kwargs
-        self.actionid = str(uuid.uuid1())
+        self.actionid = GenerateActionID()
         self.kwargs = {}
 
         for kw, value in kwargs.iteritems():
@@ -51,9 +58,119 @@ class Request(object):
                 value = VALUEALIAS.get(value, value)
             self.kwargs[kw] = value
 
-        print self.action, self.kwargs
+    def _request_dict(self):
+        return dict(list({'Action': self.action,  'ActionID': self.actionid}.items()) + list(self.kwargs.items()))
+
+    def amiencode(self, tail=False):
+        assert isinstance(tail, bool)
+
+        return "\r\n".join(["%s: %s" % (k, v) for k, v in self._request_dict().iteritems()]) + ('\r\n' if tail else '')
+        
+    def urlencode(self):
+        return urllib.urlencode(self._request_dict())
+
+class ClientManager(object):
+    def __init__(self): #add ioloop.stop somehow
+        
+        self._clients = []
+        self._cleaner = tornado.ioloop.PeriodicCallback(self._clean, 1000).start() #will never stop.. mwahaha
+
+    def addclient(self, client):
+        assert isinstance(client, (AJAMClient))
+        self._clients.append(client)
+
+    def _clean(self):
+        for client in self._clients:
+            if not client.active:
+                client._cleanup()
+                self._clients.remove(client)
+                del(client) #will this work?
 
 class AJAMClient(object):
+    r""""""
+
+    def __init__(self, host='127.0.0.1', port=8088, secure=False, prefix='', digest=True, username='amity', secret='amity', events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):
+        assert isinstance(host, (str, unicode))
+        assert isinstance(port, int)
+        assert isinstance(secure, bool)
+        assert isinstance(prefix, (str, unicode))
+        assert isinstance(digest, bool)
+        assert isinstance(username, (str, unicode))
+        assert isinstance(secret, (str, unicode))
+        assert isinstance(events, bool)
+        assert isinstance(keepalive, int)
+        assert isinstance(validate_certs, bool)
+        assert isinstance(ca_certs, (bool, None.__class__))
+        assert isinstance(allow_ipv6, bool)
+        assert isinstance(force_ipv6, bool)
+        assert isinstance(proxy_host, (str, unicode, None.__class__))
+        assert isinstance(proxy_port, (int, None.__class__))
+        assert isinstance(proxy_username, (str, unicode, None.__class__))
+        assert isinstance(proxy_password, (str, unicode, None.__class__))
+
+        self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
+
+        #URL and Digest preferences
+        self._host = host
+        self._port = port
+        self._secure = secure
+        self._prefix = prefix
+        self._digest = digest
+        #SSL Options
+        self._validate_certs = validate_certs
+        self._ca_certs = ca_certs
+        #IP Preferences
+        self._allow_ipv6 = allow_ipv6
+        self._force_ipv6 = force_ipv6
+        #Proxy Preferences
+        self._proxy_host = proxy_host
+        self._proxy_port = proxy_port
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
+
+        #AMI Authentication
+        self._username = username
+        self._secret = secret
+
+        #Run WaitEvent?
+        self._events = events
+
+        #Prepare URL
+        self._access_method = 'arawman' if self._digest else 'rawman'
+        self._protocol = 'https' if self._secure else 'http'       
+        self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
+        self._url = urlparse.urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
+
+        self._cookie = Cookie.SimpleCookie()
+
+        self.__requests = [] #going to have to traverse this list if you don't use the map
+        self.__requests_actionid_map = {} #use this to pop from __requests
+
+        self._alive = False
+        self._authenticated = False
+        self._attempting_authentication = False
+
+        self._digest_nc = 1
+
+        self._action = None
+
+        self.active = True #Used by ClientManager
+
+        self._keepalive_timer = tornado.ioloop.PeriodicCallback(self._keepalive_timer_callback, keepalive)
+        self._keepalive_timer.start()
+
+    def _keepalive_timer_callback(self):
+        print self.active
+
+    def _cleanup(self):
+        self._keepalive_timer.stop()
+        del(self._keepalive_timer)
+
+    def request(self, request):
+        assert isinstance(request, Request)
+        
+
+class AJAMClientOld(object):
     r""""""
 
     def __init__(self, host='127.0.0.1', port=8088, secure=False, prefix='', digest=True, username='amity', secret='amity', events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):
@@ -109,7 +226,8 @@ class AJAMClient(object):
 
         self._cookie = Cookie.SimpleCookie()
 
-        self.__requests = []
+        self.__requests = [] #going to have to traverse this list if you don't use the map
+        self.__requests_actionid_map = {} #use this to pop from __requests
 
         self._alive = False
         self._authenticated = False
