@@ -13,9 +13,9 @@ if __name__ == "__main__":
         datefmt='%H:%M:%S')
 
     #testingserver = amity.client.AJAMClient(host='testserver1', proxy_host='10.10.0.1', proxy_port=3128)
-    amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111')
-    amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111', digest=False)
-    amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111223344')
-    amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111223344', digest=False)
+    ##amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111')
+    amity.client.AJAMClient(host='localhost', username='amity', secret='amity', digest=False)
+    ##amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111223344')
+    ##amity.client.AJAMClient(host='testserver2', username='admin', secret='amp111223344', digest=False)
             
     tornado.ioloop.IOLoop.instance().start()
