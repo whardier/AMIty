@@ -1,303 +1,222 @@
 #!/usr/bin/env python
 
+import os
+import sys
+
 import uuid
-import socket
+
 import logging
-import urllib
+
+import urllib2
+import urlparse
+
 import Cookie
 
-import tornado.iostream
+import socket
+
 import tornado.ioloop
 import tornado.httpclient
+import tornado.httputil
+import tornado.gen
 
+from hashlib import md5
 
 from errors import InterfaceError
+from common import COMMANDALIAS
 
-command_resolver = {
-    'actionid': 'ActionID',
-}
-
-class Client(object):
-    r""""""
-
-    def __init__(self, ioloop=None, alias=None, host='127.0.0.1', port=5038, username='asterisk', secret='asterisk', events=True):
-        self.__ioloop = ioloop
-        self.__host = host
-        self.__port = port
-        self.__username = username
-        self.__secret = secret
-        self.__events = events
-        self.__authenticate = False
-        self.__requests = []       
-        self.__alias = alias
-        self.__attempting_connection = False
-        self.__alive = False
-
-        if not self.__alias:
-            self.__alias = str(uuid.uuid1())
-
-        self.__callback = None
-
-        self.usage_count = 0
-
-        self.__connect_timer = tornado.ioloop.PeriodicCallback(self.__keepalive, 1000, self.__ioloop)
-
-        self.__connect()
-
-
-    def __keepalive(self):
-        if not self.__alive and not self.__attempting_connection:
-            logging.info('%s Reconnecting (Via Periodic Timer)' % (self.__alias))
-            self.__connect()
-
-    def __connect(self):
-        self.__attempting_connection = True
-        self.usage_count = 0
-        self.__connect_timer.stop()
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-            s.settimeout(10)
-            s.connect((self.__host, self.__port))
-            s.settimeout(None)
-            self.__stream = tornado.iostream.IOStream(s)
-            self.__stream.set_close_callback(self.__socket_close)
-            self.__alive = True
-            self.__attempting_connection = False
-            self.__connect_timer = tornado.ioloop.PeriodicCallback(self.__keepalive, 1000, self.__ioloop) #Redifine here to restart the process from current execution date
-            self.__connect_timer.start()
-        except socket.error, error:
-            self.__attempting_connection = False
-            self.__connect_timer.start()
-            #raise InterfaceError(error)
-
-        self.__connect_timer.start()
-
-        if self.__alive:
-            try:
-                self.__stream.read_until('\r\n', self.__handle_banner)
-            except IOError, e:
-                self.__alive = False
-                raise
-
-    def __send_complete(self, actionid=None):
-        self.__stream.write("\r\n")
-
-    def __send_command(self, auto_actionid=True, send_complete=True, callback=None, **kwargs):
-
-        if not self.__alive:
-            return
-
-        if auto_actionid:
-            actionid = str(uuid.uuid1())
-            kwargs['actionid'] = actionid
-
-        for kw, v in kwargs.iteritems():
-            kw = command_resolver.get(kw, kw)
-            self.__stream.write("%s: %s\r\n" % (kw, v))
-            logging.info('%s Send Command (%s): %s: %s' % (self.__alias, actionid, kw, v))
-
-        try:
-            if send_complete:
-                self.__send_complete()        
-            self.__stream.read_until('\r\n\r\n', callback or self.__handle_message)
-        except IOError, e:
-            self.__alive = False
-            raise
-
-    def __socket_close(self):
-        if self.__callback:
-            self.__callback(None, InterfaceError('connection closed'))
-        self.__callback = None
-        self.__alive = False
-        self.__stream._close_callback = None
-        self.__stream.close()
-        self.__connect()
-
-    def __handle_banner(self, data):
-        logging.info('%s Parse Banner: %s' % (self.__alias, data.strip()))
-        self.__send_login()
-
-    def __send_login(self):
-        self.__send_command(action='login',
-                            username=self.__username,
-                            secret=self.__secret,
-                            events=['off', 'on'][self.__events])
-        #self.__stream.write("Action: login\r\n")
-        #self.__stream.write("Username: %s\r\n" % self.__username)
-        #self.__stream.write("Secret: %s\r\n" % self.__secret)
-        #self.__stream.write("Events: %s\r\n" % ['off', 'on'][self.__events])
-        #self.__stream.write("ActionID: %s\r\n" % uuid.uuid1())
-        #self.__stream.write("\r\n")
-
-    def __handle_message(self, data):
-        print "ME"
-        if data:
-            logging.info('%s Print Message (STARTED)' % self.__alias)
-            for line in data.strip().split('\r\n'):
-                logging.info('%s Print Message: %s' % (self.__alias, line))
-    
-            logging.info('%s Print Message (ENDED)' % self.__alias)
-    
-        if self.__events:
-            try:
-                self.__stream.read_until('\r\n\r\n', self.__handle_message)
-            except IOError, e:
-                self.__alive = False
-                raise
-
-    def ListCommands(self):
-        self.__send_command(action='ListCommands')
-
-#invert_op = getattr(self, "invert_op", None)
-#if callable(invert_op):
-#    invert_op(self.path.parent_op)
+tornado.httpclient.AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") #very sexy
 
 class AJAMClient(object):
     r""""""
 
-    def __init__(self, alias=None, host='127.0.0.1', port=8088, username='amity', secret='amity', events=True, ping=10000):
+    def __init__(self, host='127.0.0.1', port=8088, secure=False, prefix=None, digest=True, username='amity', secret='amity', events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):
+        assert isinstance(host, (str, unicode))
+        assert isinstance(port, int)
+        assert isinstance(secure, bool)
+        assert isinstance(prefix, (str, unicode, None.__class__))
+        assert isinstance(digest, bool)
+        assert isinstance(username, (str, unicode))
+        assert isinstance(secret, (str, unicode))
+        assert isinstance(events, bool)
+        assert isinstance(keepalive, int)
+        assert isinstance(validate_certs, bool)
+        assert isinstance(ca_certs, (bool, None.__class__))
+        assert isinstance(allow_ipv6, bool)
+        assert isinstance(force_ipv6, bool)
+        assert isinstance(proxy_host, (str, unicode, None.__class__))
+        assert isinstance(proxy_port, (int, None.__class__))
+        assert isinstance(proxy_username, (str, unicode, None.__class__))
+        assert isinstance(proxy_password, (str, unicode, None.__class__))
+
+        #Used during logging
+        self.__uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
+
+        #URL and Digest preferences
         self.__host = host
         self.__port = port
+        self.__secure = secure
+        self.__prefix = prefix
+        self.__digest = digest
+        #SSL Options
+        self.__validate_certs = validate_certs
+        self.__ca_certs = ca_certs
+        #IP Preferences
+        self.__allow_ipv6 = allow_ipv6
+        self.__force_ipv6 = force_ipv6
+        #Proxy Preferences
+        self.__proxy_host = proxy_host
+        self.__proxy_port = proxy_port
+        self.__proxy_username = proxy_username
+        self.__proxy_password = proxy_password
+
+        #
         self.__username = username
         self.__secret = secret
+
         self.__events = events
-        self.__authenticated = False
-        self.__requests = {}
-        self.__requests_callbacks = {}
-        self.__alias = alias
-        self.__alive = False
-        self.__attempting_login = False
-        self.__cookie = None
-        self.__waiting = False
+
+        #Prepare URL
+        self.__access_method = '/arawman' if self.__digest else '/rawman'
+
+        self.__protocol = 'https' if self.__secure else 'http'
         
-        self.__url = "http://%s:%d/rawman?" % (self.__host, self.__port)
+        self.__baseurl = "%s://%s:%d/" % (self.__protocol, self.__host, self.__port)
 
-        if not self.__alias:
-            self.__alias = str(uuid.uuid1())
+        self.__url = self.__baseurl
 
-        self.__keepalive_ping = tornado.ioloop.PeriodicCallback(self.send_ping, ping)
-        self.__keepalive_ping.start()
+        if self.__prefix:
+            self.__url = urlparse.urljoin(self.__baseurl, self.__prefix)
 
-        if self.__events:
-            self.__keepalive_waitevent = tornado.ioloop.PeriodicCallback(self.__waitevent, 1000)
-            self.__keepalive_waitevent.start()
+        self.__url = urlparse.urljoin(self.__url, self.__access_method)
 
+        self.__magic_cookie = None
 
-    def __fetch(self, actionid, callback=None, final_callback=None):
-        action = self.__requests[actionid].get('Action', None)
+        self.__callback = None
 
-        if action != 'Login' and self.__attempting_login:
-            print "Logging in right now hold your horses"
+        self.__alive = False
+        self.__authenticated = False
+        self.__attempting_login = False
+        self.__attempting_digest_authentication = False
+
+        self.__action = None
+    
+        self.__login()
+
+    def __fresh_request(self):
+        request = tornado.httpclient.HTTPRequest(self.__url)
+        request.proxy_host = self.__proxy_host
+        request.proxy_port = self.__proxy_port
+        request.proxy_username = self.__proxy_username
+        request.proxy_username = self.__proxy_password
+
+        return request
+
+    def __send_request(self):
+        self.__login()
+
+    def __login_digest(self, response=None):
+        if response:
+            print response
+            print response.headers
+            print response.code
             return
 
-        if action != 'Login' and not self.__authenticated:
-            print "Attempting to login"
-            self.__login()
-            return
+        self.__attempting_digest_authentication = True
 
-        print action
+        request = self.__fresh_request()
+        client = tornado.httpclient.AsyncHTTPClient()
+        client.fetch(request, self.__login_digest)
 
-        callback = callback or self.__handle_request
-        print self.__encode_request(actionid)
-
-        request = tornado.httpclient.HTTPRequest(url=self.__url + self.__encode_request(actionid))
-        #request = tornado.httpclient.HTTPRequest(url=self.__url + self.__encode_request(actionid), headers=[self.__cookie])
-
-        if self.__cookie:
-            request.headers = {'Cookie': self.__cookie}
-            print request.headers
-
-        self.__requests_callbacks[actionid] = final_callback
-
-        ajam_client = tornado.httpclient.AsyncHTTPClient()
-        ajam_client.fetch(request, callback)
-
-    def __prepare_request(self, action, **kwargs):
-        actionid = str(uuid.uuid1())
-
-        request = {'Action': action}
-        for kw, v in kwargs.iteritems():
-            kw = command_resolver.get(kw, kw)
-            request[kw] = v
-        request['ActionID'] = actionid
-
-        self.__requests[actionid] = request
-
-        return actionid
-
-    def __encode_request(self, actionid):
-        return urllib.urlencode(self.__requests[actionid])
+        self.__attempting_digest_authentication = False
 
     def __login(self):
-        print "Login 1"
-        self.__attempting_login = True
-        actionid = self.__prepare_request('Login', username=self.__username, secret=self.__secret)
-        self.__cookie = False
-        print "Login 2"
-    
-        self.__fetch(actionid)
-        print "Login 3"
 
-    def __waitevent(self):
-        if self.__waiting:
+        if self.__authenticated:
             return
 
-        self.__waiting = True
-        print 'WaitEvent'
+        self.__attempting_login = True
 
-        actionid = self.__prepare_request('WaitEvent', timeout=10)
-
-        self.__fetch(actionid, final_callback=self.__waitevent_process)
-
-    def __waitevent_process(self, *args, **kwargs):
-        print args, kwargs
-        self.__waiting = False
-        self.__waitevent()
-
-    def __handle_request(self, response):
-        if response.error:
-            print "Error:", response.error
+        if self.__digest:
+            self.__login_digest()
         else:
-            parts = response.body.split('\r\n')
-            import pprint
-            pprint.pprint(parts)
-            r = {}
-            for part in parts:
-                if not ': ' in part:
-                    continue
-                print "!!!!!!", part
+            return
 
-                if part.strip().endswith(':'):
-                    k = part.strip()[:-1]
-                    v = ''
-                else:
-                    k, v = part.strip().split(': ', 1)
+        self.__attempting_login = False
 
-                r[k] = v
+"""
+    def __login_digest(self, request):
 
-            if r.get('Response', None) == 'Error' and r.get('Message', None) == 'Permission denied':
-                self.__authenticated = False
-                self.__login()
+    def __login(self, request=None):
+        self.__attempting_login = True
 
-            if r.get('Response', None) == 'Success' and r.get('Message', None) == 'Authentication accepted':
-                self.__authenticated = True
-                cookies = Cookie.SimpleCookie(response.headers['Set-Cookie'])
-                self.__cookie = cookies.output('mansession_id', '')
-                self.__attempting_login = False
-                self.__waiting = False
+        e = None
+        digest = False
+        
+        if not request:
+            request = self.__url + '?Action=Ping'    
 
-            print r
+        try:
+            response = tornado.httpclient.HTTPClient().fetch(request)
+            self.__attempting_login = False
+            self.__attempting_digest_authentication = False
+            print response
+            print response.body
+        except tornado.httpclient.HTTPError, e:
+            if code == 401:
+                if 'WWW-Authenticate' in e.response.headers:
+                    if 'Digest' in e.response.headers['WWW-Authenticate']:
+                        self.__perform_digest_login()
 
-            if 'ActionID' in r:
-                print "FOUND", self.__requests[r['ActionID']]
-                del(self.__requests[r['ActionID']])
-                final_callback = self.__requests_callbacks[r['ActionID']]
-                if final_callback:
-                    final_callback()
-                del(self.__requests_callbacks[r['ActionID']])
+            if e:
+                raise e
 
-    def send_ping(self):
-        actionid = self.__prepare_request('Ping')
+            if self.__attempting_digest_authentication:
+                raise e
+            else:
+               self.__attempting_digest_authentication = True
 
-        self.__fetch(actionid)
-        pass
+            try:
+                params = urllib2.parse_keqv_list(
+                            urllib2.parse_http_list(
+                                e.response.headers.get('www-authenticate').partition('Digest')[2]
+                            )
+                         )
+    
+                #params['username']
+                #params['realm']
+                #params['nonce']
+                uri = os.path.join(self.__prefix, self.__access_method + '?Action=Ping')
+                cnonce = uuid.uuid1().hex
+                nc = "00000001"
+                qop = "auth"
+                #params['opaque']
+                #params['algorithm']
+                response = md5(":".join([
+                            md5(":".join((self.__username, params['realm'], self.__secret))).hexdigest(),
+                            params['nonce'],
+                            nc,
+                            cnonce,
+                            qop,
+                            md5(":".join(('GET', uri))).hexdigest()
+                            ])).hexdigest()
+
+                headers = tornado.httputil.HTTPHeaders()
+                headers.add('Authorization', 'Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%s, qop="%s", response="%s", opaque="%s", algorithm="%s"' % (self.__username, params['realm'], params['nonce'], uri, cnonce, nc, qop, response, params['opaque'], params['algorithm']))
+                import time
+                time.sleep(1)
+                print e, e.response
+                self.__login(request=tornado.httpclient.HTTPRequest(e.response.effective_url, headers=headers))
+
+            except:
+                raise
+                pass #make do something                               
+
+        self.__attempting_login = False
+
+#Digest username="admin", realm="pbx01.voip.cda01", nonce="686ce6b9", uri="/arawman?action=ListCommands", cnonce="MDkzMDYw", 
+#nc=00000001, qop="auth", response="c42fb64726167d450cc7d6ce63636c34", opaque="686ce6b9", algorithm="MD5"
+
+
+
+#'nonce': '2c7b2d3e', 'qop': 'auth', 'realm': 'asterisk', 'opaque': '2c7b2d3e', 'algorithm': 'MD5'
+"""
