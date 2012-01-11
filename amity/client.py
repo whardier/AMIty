@@ -113,51 +113,58 @@ class ClientManager(object):
 class AJAMClient(object):
     r""""""
 
-    def __init__(self, host='127.0.0.1', port=8088, secure=False, prefix='', digest=True, username='amity', secret='amity', events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):
-        assert isinstance(host, (str, unicode))
-        assert isinstance(port, int)
-        assert isinstance(secure, bool)
-        assert isinstance(prefix, (str, unicode))
-        assert isinstance(digest, bool)
-        assert isinstance(username, (str, unicode))
-        assert isinstance(secret, (str, unicode))
-        assert isinstance(events, bool)
-        assert isinstance(keepalive, int)
-        assert isinstance(validate_certs, bool)
-        assert isinstance(ca_certs, (bool, None.__class__))
-        assert isinstance(allow_ipv6, bool)
-        assert isinstance(force_ipv6, bool)
-        assert isinstance(proxy_host, (str, unicode, None.__class__))
-        assert isinstance(proxy_port, (int, None.__class__))
-        assert isinstance(proxy_username, (str, unicode, None.__class__))
-        assert isinstance(proxy_password, (str, unicode, None.__class__))
+    def __init__(self, *args, **kwargs):
 
-        self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
+        #host='127.0.0.1', port=8088, secure=False, prefix='', digest=True, username='amity', secret='amity', 
+        #events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, 
+        #proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):        
 
         #URL and Digest preferences
-        self._host = host
-        self._port = port
-        self._secure = secure
-        self._prefix = prefix
-        self._digest = digest
-        #SSL Options
-        self._validate_certs = validate_certs
-        self._ca_certs = ca_certs
-        #IP Preferences
-        self._allow_ipv6 = allow_ipv6
-        self._force_ipv6 = force_ipv6
-        #Proxy Preferences
-        self._proxy_host = proxy_host
-        self._proxy_port = proxy_port
-        self._proxy_username = proxy_username
-        self._proxy_password = proxy_password
+        self._host = kwargs.get('host', '127.0.0.1')
+        self._port = kwargs.get('port', 8088)
+        self._secure = kwargs.get('secure', False)
+        self._prefix = kwargs.get('prefix', '')
+        self._digest = kwargs.get('digest', True)
 
         #AMI Authentication
-        self._username = username
-        self._secret = secret
+        self._username = kwargs.get('username', 'amity')
+        self._secret = kwargs.get('secret', 'amity')
 
-        #Run WaitEvent?
-        self._events = events
+        #AMI interface preferences
+        self._events = kwargs.get('events', True)
+        self._keepalive = kwargs.get('keepalive', 1000)
+
+        #SSL Options
+        self._validate_certs = kwargs.get('validate_certs', True)
+        self._ca_certs = kwargs.get('ca_certs')
+        #IP Preferences
+        self._allow_ipv6 = kwargs.get('allow_ipv6', True)
+        self._force_ipv6 = kwargs.get('force_ipv6', False)
+        #Proxy Preferences
+        self._proxy_host = kwargs.get('proxy_host')
+        self._proxy_port = kwargs.get('proxy_port')
+        self._proxy_username = kwargs.get('proxy_username')
+        self._proxy_password = kwargs.get('proxy_password')
+
+        assert isinstance(self._host, (str, unicode))
+        assert isinstance(self._port, int)
+        assert isinstance(self._secure, bool)
+        assert isinstance(self._prefix, (str, unicode))
+        assert isinstance(self._digest, bool)
+        assert isinstance(self._username, (str, unicode))
+        assert isinstance(self._secret, (str, unicode))
+        assert isinstance(self._events, bool)
+        assert isinstance(self._keepalive, int)
+        assert isinstance(self._validate_certs, bool)
+        assert isinstance(self._ca_certs, (None.__class__))
+        assert isinstance(self._allow_ipv6, bool)
+        assert isinstance(self._force_ipv6, bool)
+        assert isinstance(self._proxy_host, (str, unicode, None.__class__))
+        assert isinstance(self._proxy_port, (int, None.__class__))
+        assert isinstance(self._proxy_username, (str, unicode, None.__class__))
+        assert isinstance(self._proxy_password, (str, unicode, None.__class__))
+
+        self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
 
         #Prepare URL
         self._access_method = 'arawman' if self._digest else 'rawman'
@@ -180,7 +187,7 @@ class AJAMClient(object):
 
         self.active = True #Used by ClientManager
 
-        self._keepalive_timer = tornado.ioloop.PeriodicCallback(self._keepalive_timer_callback, keepalive)
+        self._keepalive_timer = tornado.ioloop.PeriodicCallback(self._keepalive_timer_callback, self._keepalive)
         self._keepalive_timer.start()
 
     def _keepalive_timer_callback(self):
@@ -193,6 +200,12 @@ class AJAMClient(object):
     def request(self, request):
         assert isinstance(request, Request)
         
+
+
+
+
+
+"""
 
 class AJAMClientOld(object):
     r""""""
@@ -215,20 +228,25 @@ class AJAMClientOld(object):
         assert isinstance(proxy_port, (int, None.__class__))
         assert isinstance(proxy_username, (str, unicode, None.__class__))
         assert isinstance(proxy_password, (str, unicode, None.__class__))
+
         #Used during logging
         self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
+
         #URL and Digest preferences
         self._host = host
         self._port = port
         self._secure = secure
         self._prefix = prefix
         self._digest = digest
+
         #SSL Options
         self._validate_certs = validate_certs
         self._ca_certs = ca_certs
+
         #IP Preferences
         self._allow_ipv6 = allow_ipv6
         self._force_ipv6 = force_ipv6
+
         #Proxy Preferences
         self._proxy_host = proxy_host
         self._proxy_port = proxy_port
@@ -435,3 +453,4 @@ class AJAMClientOld(object):
 
     def _handle_request_queue(self, response):
         pass
+"""
