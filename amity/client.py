@@ -22,20 +22,11 @@
 
 """Client(s) and ClientManager"""
 
-import os
-import sys
-
 import uuid
-
 import logging
-
-import urllib #I know right
-import urllib2 #whaaat?
-import urlparse #hey now
-
-import Cookie
-
 import socket
+
+import os.path
 
 import tornado.ioloop
 import tornado.httpclient
@@ -45,6 +36,13 @@ import tornado.httputil
 import tornado.stack_context
 
 from hashlib import md5
+
+from urllib import urlencode
+from urllib2 import parse_http_list
+from urllib2 import parse_keqv_list
+from urlparse import urljoin
+
+from Cookie import SimpleCookie
 
 from errors import InterfaceError
 from common import COMMANDALIAS, KEYALIAS, VALUEALIAS, VALUENEVERALIAS
@@ -89,7 +87,7 @@ class Request(object):
         return "\r\n".join(["%s: %s" % (k, v) for k, v in self._request_dict().iteritems()]) + ('\r\n' if tail else '')
         
     def urlencode(self):
-        return urllib.urlencode(self._request_dict())
+        return urlencode(self._request_dict())
 
 
 
@@ -165,9 +163,9 @@ class AJAMClient(object):
         self._access_method = 'arawman' if self._digest else 'rawman'
         self._protocol = 'https' if self._secure else 'http'       
         self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
-        self._url = urlparse.urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
+        self._url = urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
 
-        self._cookie = Cookie.SimpleCookie()
+        self._cookie = SimpleCookie()
 
         self.__requests = [] #going to have to traverse this list if you don't use the map
         self.__requests_actionid_map = {} #use this to pop from __requests
@@ -248,9 +246,9 @@ class AJAMClientOld(object):
         self._access_method = 'arawman' if self._digest else 'rawman'
         self._protocol = 'https' if self._secure else 'http'       
         self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
-        self._url = urlparse.urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
+        self._url = urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
 
-        self._cookie = Cookie.SimpleCookie()
+        self._cookie = SimpleCookie()
 
         self.__requests = [] #going to have to traverse this list if you don't use the map
         self.__requests_actionid_map = {} #use this to pop from __requests
@@ -315,8 +313,8 @@ class AJAMClientOld(object):
             raise InterfaceError()
 
         param_string = response.headers.get('www-authenticate').partition('Digest')[2]
-        param_list = urllib2.parse_http_list(param_string)
-        params = urllib2.parse_keqv_list(param_list)
+        param_list = parse_http_list(param_string)
+        params = parse_keqv_list(param_list)
 
         digest_path = os.path.join('/', self._prefix, self._access_method)
         digest_cnonce = uuid.uuid1().hex
@@ -367,7 +365,7 @@ class AJAMClientOld(object):
 
         client = tornado.httpclient.AsyncHTTPClient()
 
-        request = self._fresh_request(self._url + '?' + urllib.urlencode({'Action': 'Login', 'Username': self._username, 'Secret': self._secret}))
+        request = self._fresh_request(self._url + '?' + urlencode({'Action': 'Login', 'Username': self._username, 'Secret': self._secret}))
 
         client.fetch(request, self._login_request)
 
@@ -418,7 +416,7 @@ class AJAMClientOld(object):
         self._check_authenticated()
 
         client = tornado.httpclient.AsyncHTTPClient()
-        request = self._fresh_request(self._url + '?' + urllib.urlencode({'Action': 'Ping'}))
+        request = self._fresh_request(self._url + '?' + urlencode({'Action': 'Ping'}))
         client.fetch(request, self._keepalive_response)
 
     def _keepalive_response(self, response):
