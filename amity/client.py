@@ -49,131 +49,131 @@ class AJAMClient(object):
         assert isinstance(proxy_password, (str, unicode, None.__class__))
 
         #Used during logging
-        self.__uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
+        self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
 
         #URL and Digest preferences
-        self.__host = host
-        self.__port = port
-        self.__secure = secure
-        self.__prefix = prefix
-        self.__digest = digest
+        self._host = host
+        self._port = port
+        self._secure = secure
+        self._prefix = prefix
+        self._digest = digest
         #SSL Options
-        self.__validate_certs = validate_certs
-        self.__ca_certs = ca_certs
+        self._validate_certs = validate_certs
+        self._ca_certs = ca_certs
         #IP Preferences
-        self.__allow_ipv6 = allow_ipv6
-        self.__force_ipv6 = force_ipv6
+        self._allow_ipv6 = allow_ipv6
+        self._force_ipv6 = force_ipv6
         #Proxy Preferences
-        self.__proxy_host = proxy_host
-        self.__proxy_port = proxy_port
-        self.__proxy_username = proxy_username
-        self.__proxy_password = proxy_password
+        self._proxy_host = proxy_host
+        self._proxy_port = proxy_port
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
 
         #
-        self.__username = username
-        self.__secret = secret
+        self._username = username
+        self._secret = secret
 
-        self.__events = events
+        self._events = events
 
         #Prepare URL
-        self.__access_method = '/arawman' if self.__digest else '/rawman'
+        self._access_method = '/arawman' if self._digest else '/rawman'
 
-        self.__protocol = 'https' if self.__secure else 'http'
+        self._protocol = 'https' if self._secure else 'http'
         
-        self.__baseurl = "%s://%s:%d/" % (self.__protocol, self.__host, self.__port)
+        self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
 
-        self.__url = self.__baseurl
+        self._url = self._baseurl
 
-        if self.__prefix:
-            self.__url = urlparse.urljoin(self.__baseurl, self.__prefix)
+        if self._prefix:
+            self._url = urlparse.urljoin(self._baseurl, self._prefix)
 
-        self.__url = urlparse.urljoin(self.__url, self.__access_method)
+        self._url = urlparse.urljoin(self._url, self._access_method)
 
-        self.__magic_cookie = None
+        self._magic_cookie = None
 
-        self.__callback = None
+        self._callback = None
 
-        self.__alive = False
-        self.__authenticated = False
-        self.__attempting_login = False
-        self.__attempting_digest_authentication = False
+        self._alive = False
+        self._authenticated = False
+        self._attempting_login = False
+        self._attempting_digest_authentication = False
 
-        self.__action = None
+        self._action = None
     
-        self.__login()
+        self._login()
 
-    def __fresh_request(self):
-        request = tornado.httpclient.HTTPRequest(self.__url)
-        request.proxy_host = self.__proxy_host
-        request.proxy_port = self.__proxy_port
-        request.proxy_username = self.__proxy_username
-        request.proxy_username = self.__proxy_password
+    def _fresh_request(self):
+        request = tornado.httpclient.HTTPRequest(self._url)
+        request.proxy_host = self._proxy_host
+        request.proxy_port = self._proxy_port
+        request.proxy_username = self._proxy_username
+        request.proxy_username = self._proxy_password
 
         return request
 
-    def __send_request(self):
-        self.__login()
+    def _send_request(self):
+        self._login()
 
-    def __login_digest(self, response=None):
+    def _login_digest(self, response=None):
         if response:
             print response
             print response.headers
             print response.code
             return
 
-        self.__attempting_digest_authentication = True
+        self._attempting_digest_authentication = True
 
-        request = self.__fresh_request()
+        request = self._fresh_request()
         client = tornado.httpclient.AsyncHTTPClient()
-        client.fetch(request, self.__login_digest)
+        client.fetch(request, self._login_digest)
 
-        self.__attempting_digest_authentication = False
+        self._attempting_digest_authentication = False
 
-    def __login(self):
+    def _login(self):
 
-        if self.__authenticated:
+        if self._authenticated:
             return
 
-        self.__attempting_login = True
+        self._attempting_login = True
 
-        if self.__digest:
-            self.__login_digest()
+        if self._digest:
+            self._login_digest()
         else:
             return
 
-        self.__attempting_login = False
+        self._attempting_login = False
 
 """
-    def __login_digest(self, request):
+    def _login_digest(self, request):
 
-    def __login(self, request=None):
-        self.__attempting_login = True
+    def _login(self, request=None):
+        self._attempting_login = True
 
         e = None
         digest = False
         
         if not request:
-            request = self.__url + '?Action=Ping'    
+            request = self._url + '?Action=Ping'    
 
         try:
             response = tornado.httpclient.HTTPClient().fetch(request)
-            self.__attempting_login = False
-            self.__attempting_digest_authentication = False
+            self._attempting_login = False
+            self._attempting_digest_authentication = False
             print response
             print response.body
         except tornado.httpclient.HTTPError, e:
             if code == 401:
                 if 'WWW-Authenticate' in e.response.headers:
                     if 'Digest' in e.response.headers['WWW-Authenticate']:
-                        self.__perform_digest_login()
+                        self._perform_digest_login()
 
             if e:
                 raise e
 
-            if self.__attempting_digest_authentication:
+            if self._attempting_digest_authentication:
                 raise e
             else:
-               self.__attempting_digest_authentication = True
+               self._attempting_digest_authentication = True
 
             try:
                 params = urllib2.parse_keqv_list(
@@ -185,14 +185,14 @@ class AJAMClient(object):
                 #params['username']
                 #params['realm']
                 #params['nonce']
-                uri = os.path.join(self.__prefix, self.__access_method + '?Action=Ping')
+                uri = os.path.join(self._prefix, self._access_method + '?Action=Ping')
                 cnonce = uuid.uuid1().hex
                 nc = "00000001"
                 qop = "auth"
                 #params['opaque']
                 #params['algorithm']
                 response = md5(":".join([
-                            md5(":".join((self.__username, params['realm'], self.__secret))).hexdigest(),
+                            md5(":".join((self._username, params['realm'], self._secret))).hexdigest(),
                             params['nonce'],
                             nc,
                             cnonce,
@@ -201,17 +201,17 @@ class AJAMClient(object):
                             ])).hexdigest()
 
                 headers = tornado.httputil.HTTPHeaders()
-                headers.add('Authorization', 'Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%s, qop="%s", response="%s", opaque="%s", algorithm="%s"' % (self.__username, params['realm'], params['nonce'], uri, cnonce, nc, qop, response, params['opaque'], params['algorithm']))
+                headers.add('Authorization', 'Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%s, qop="%s", response="%s", opaque="%s", algorithm="%s"' % (self._username, params['realm'], params['nonce'], uri, cnonce, nc, qop, response, params['opaque'], params['algorithm']))
                 import time
                 time.sleep(1)
                 print e, e.response
-                self.__login(request=tornado.httpclient.HTTPRequest(e.response.effective_url, headers=headers))
+                self._login(request=tornado.httpclient.HTTPRequest(e.response.effective_url, headers=headers))
 
             except:
                 raise
                 pass #make do something                               
 
-        self.__attempting_login = False
+        self._attempting_login = False
 
 #Digest username="admin", realm="pbx01.voip.cda01", nonce="686ce6b9", uri="/arawman?action=ListCommands", cnonce="MDkzMDYw", 
 #nc=00000001, qop="auth", response="c42fb64726167d450cc7d6ce63636c34", opaque="686ce6b9", algorithm="MD5"
