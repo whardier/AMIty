@@ -55,7 +55,7 @@ def GenerateActionID():
     return str(uuid.uuid1())
 
 class Request(object):
-    def __init__(self, action=None, key=None, key_max=1, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
+    def __init__(self, action=None, callback=None, key=None, key_max=1, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
         assert isinstance(action, (str, unicode, None.__class__))
         assert isinstance(key, (str, unicode))
         assert isinstance(key_max, int)
@@ -64,6 +64,7 @@ class Request(object):
         assert isinstance(distinct_action_kwargs, bool)
 
         self.action = action
+        self.callback = callback
         self.key = key
         self.key_max = key_max
         self.retry = retry
@@ -79,7 +80,7 @@ class Request(object):
             self.kwargs[kw] = value
 
     def _request_dict(self):
-        return dict(list({'Action': self.action,  'ActionID': self.actionid}.items()) + list(self.kwargs.items()))
+        return dict(list({'Action': self.action, 'ActionID': self.actionid}.items()) + list(self.kwargs.items()))
 
     def amiencode(self, tail=False):
         assert isinstance(tail, bool)
@@ -109,30 +110,28 @@ class ClientManager(object):
                 del(client) #will this work?
 
 
-
-class AJAMClient(object):
-    r""""""
-
+class BaseClient(object):
     def __init__(self, *args, **kwargs):
+        self.__preinit__(*args, **kwargs) #TODO: Am I insane? Please check
+        self.__postinit__(*args, **kwargs)
 
-        #host='127.0.0.1', port=8088, secure=False, prefix='', digest=True, username='amity', secret='amity', 
-        #events=True, keepalive=1000, validate_certs=True, ca_certs=None, allow_ipv6=True, force_ipv6=False, 
-        #proxy_host=None, proxy_port=None, proxy_username=None, proxy_password=None):        
-
+    def __preinit__(self, *args, **kwargs):
         #URL and Digest preferences
         self._host = kwargs.get('host', '127.0.0.1')
         self._port = kwargs.get('port', 8088)
         self._secure = kwargs.get('secure', False)
-        self._prefix = kwargs.get('prefix', '')
-        self._digest = kwargs.get('digest', True)
 
         #AMI Authentication
         self._username = kwargs.get('username', 'amity')
         self._secret = kwargs.get('secret', 'amity')
+        self._digest = kwargs.get('digest', True)
 
         #AMI interface preferences
-        self._events = kwargs.get('events', True)
         self._keepalive = kwargs.get('keepalive', 1000)
+        self._events = kwargs.get('events', True)
+
+        #AJAM Prefix
+        self._prefix = kwargs.get('prefix', '')
 
         #SSL Options
         self._validate_certs = kwargs.get('validate_certs', True)
@@ -149,10 +148,10 @@ class AJAMClient(object):
         assert isinstance(self._host, (str, unicode))
         assert isinstance(self._port, int)
         assert isinstance(self._secure, bool)
-        assert isinstance(self._prefix, (str, unicode))
-        assert isinstance(self._digest, bool)
         assert isinstance(self._username, (str, unicode))
         assert isinstance(self._secret, (str, unicode))
+        assert isinstance(self._digest, bool)
+        assert isinstance(self._prefix, (str, unicode))
         assert isinstance(self._events, bool)
         assert isinstance(self._keepalive, int)
         assert isinstance(self._validate_certs, bool)
@@ -164,9 +163,39 @@ class AJAMClient(object):
         assert isinstance(self._proxy_username, (str, unicode, None.__class__))
         assert isinstance(self._proxy_password, (str, unicode, None.__class__))
 
+        self._requests = [] #going to have to traverse this list if you don't use the map
+        self._requests_actionid_map = {} #use this to pop from __requests
+
+        self._alive = False
+        self._authenticated = False
+        self._attempting_authentication = False
+
+        self._digest_nc = 1
+        self._digest_last_nonce = None
+        self._digest_last_cnonce = None
+
+        self.active = True
+
+    def __postinit__(self, *args, **kwargs):
+        self._keepalive_timer = tornado.ioloop.PeriodicCallback(self._keepalive_timer_callback, self._keepalive)
+        self._keepalive_timer.start()
+
+    def _keepalive_timer_callback(self):
+        print 'base class', self.active
+
+    def __make_login_request(self, callback=None):
+        return Request(action='Login',
+                        callback=callback,
+                        username=self._username,
+                        secret=self._secret,
+                        events=self._event)
+
+class AJAMClient(BaseClient):
+    def __init__(self, *args, **kwargs):
+        super(AJAMClient, self).__preinit__(*args, **kwargs)
+
         self._uuid = str(uuid.uuid1()) #TODO: Make sure this is unique and check it later on
 
-        #Prepare URL
         self._access_method = 'arawman' if self._digest else 'rawman'
         self._protocol = 'https' if self._secure else 'http'       
         self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
@@ -174,21 +203,7 @@ class AJAMClient(object):
 
         self._cookie = SimpleCookie()
 
-        self.__requests = [] #going to have to traverse this list if you don't use the map
-        self.__requests_actionid_map = {} #use this to pop from __requests
-
-        self._alive = False
-        self._authenticated = False
-        self._attempting_authentication = False
-
-        self._digest_nc = 1
-
-        self._action = None
-
-        self.active = True #Used by ClientManager
-
-        self._keepalive_timer = tornado.ioloop.PeriodicCallback(self._keepalive_timer_callback, self._keepalive)
-        self._keepalive_timer.start()
+        super(AJAMClient, self).__postinit__(*args, **kwargs)
 
     def _keepalive_timer_callback(self):
         print self.active
@@ -199,10 +214,23 @@ class AJAMClient(object):
 
     def request(self, request):
         assert isinstance(request, Request)
+        pass
         
+    def _digest_login_callback(self):
+        print 'supdog'
+        pass
 
+    def _basic_login_callback(self):
+        print 'supdog'
+        pass
 
+    def login(self, request):
+        req = self.__make_login_request()
 
+        if self._digest:
+            req.callback = self._digest_login_callback
+        else:
+            req.callback = self._basic_login_callback
 
 
 """
