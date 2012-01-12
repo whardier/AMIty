@@ -20,12 +20,13 @@
 #OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #SOFTWARE.
 
-KEYS = ( 'Account', 'Action', 'ActionID', 'AOCBillingId', 'Application', 'Async', 'AuthType', 'CallerID', 
-'Category', 'Cause', 'Channel', 'ChannelPrefix', 'ChargeType', 'ChargingAssociationId', 'ChargingAssociationNumber', 
+KEYS = ( 'Account', 'Action', 'ActionID', 'AOCBillingId', 'Application', 'Async', 'AuthType', 'CallerID', 'Category', 
+'Cause', 'Channel', 'ChannelPrefix', 'ChargeType', 'ChargingAssociationId', 'ChargingAssociationNumber', 
 'ChargingAssociationPlan', 'Codecs', 'Command', 'Context', 'CurrencyAmount', 'CurrencyMultiplier', 'CurrencyName', 
 'Data', 'DstFilename', 'EventMask', 'Events', 'Exten', 'ExtraChannel', 'ExtraContext', 'ExtraExten', 'ExtraPriority', 
 'Filename', 'Key', 'LoadType', 'Mailbox', 'MD5', 'Message', 'Module', 'MsgType', 'Priority', 'Reload', 'Secret', 
-'SrcFilename', 'SuppressEvents', 'Timeout', 'TotalType', 'UserEvent', 'Username', 'Value', 'Variable', 'Variables', )
+'SrcFilename', 'SuppressEvents', 'Timeout', 'TotalType', 'UserEvent', 'Username', 'Value', 'Variable', 'Variables', 
+'UUID' ,'Method')
 
 KEYALIAS = {}
 for key in KEYS: KEYALIAS[key.lower()] = key

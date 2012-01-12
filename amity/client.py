@@ -25,6 +25,8 @@
 import uuid
 import logging
 import socket
+import operator
+import time
 
 import os.path
 
@@ -35,12 +37,17 @@ import tornado.httputil
 
 import tornado.stack_context
 
+from copy import copy
 from hashlib import md5
 
 from urllib import urlencode
 from urllib2 import parse_http_list
 from urllib2 import parse_keqv_list
-from urlparse import urljoin
+
+from urlparse import urlsplit
+from urlparse import urlunsplit
+from urlparse import parse_qs
+from urlparse import SplitResult as URL #because I can
 
 from Cookie import SimpleCookie
 
@@ -57,7 +64,7 @@ def GenerateActionID():
 class Request(object):
     def __init__(self, action=None, callback=None, key=None, key_max=1, retry=True, distinct_action=False, distinct_action_kwargs=False, **kwargs):
         assert isinstance(action, (str, unicode, None.__class__))
-        assert isinstance(key, (str, unicode))
+        assert isinstance(key, (str, unicode, None.__class__))
         assert isinstance(key_max, int)
         assert isinstance(retry, bool)
         assert isinstance(distinct_action, bool)
@@ -72,6 +79,7 @@ class Request(object):
         self.distinct_action_kwargs = distinct_action_kwargs
         self.actionid = GenerateActionID()
         self.kwargs = {}
+        self.timestamp = time.time()
 
         for kw, value in kwargs.iteritems():
             kw = KEYALIAS.get(kw, kw)
@@ -101,6 +109,7 @@ class ClientManager(object):
     def addclient(self, client):
         assert isinstance(client, (AJAMClient))
         self._clients.append(client)
+        return client
 
     def _clean(self):
         for client in self._clients:
@@ -167,8 +176,10 @@ class BaseClient(object):
         self._requests_actionid_map = {} #use this to pop from __requests
 
         self._alive = False
+
         self._authenticated = False
-        self._attempting_authentication = False
+        self._authenticating = False
+        self._authentication_request = None
 
         self._digest_nc = 1
         self._digest_last_nonce = None
@@ -181,14 +192,38 @@ class BaseClient(object):
         self._keepalive_timer.start()
 
     def _keepalive_timer_callback(self):
-        print 'base class', self.active
+        pass
 
-    def __make_login_request(self, callback=None):
+    def _make_basic_login_request(self, callback=None):
         return Request(action='Login',
                         callback=callback,
                         username=self._username,
                         secret=self._secret,
-                        events=self._event)
+                        events=self._events)
+
+    def _make_digest_login_request(self, callback=None):
+        return Request(action='Challenge',
+                        callback=callback)
+
+    def _request_from_any(self, req):
+        assert isinstance(req, (str, unicode, Request))
+
+        if isinstance(req, (str, unicode)): #Is it an actionid (useful for multi part callbacks)
+            req = self._requests_actionid_map.get(req)
+            if not req:
+                raise InterfaceError('Bad Request')                
+
+        return req
+
+
+###
+### BIG FAT WARNING: Digest mode is incomplete until Asterisk is patched.  Version checking will be done in the future 
+### once completed
+###
+
+###
+### TODO: Use digest for every call if 401/200 does not return a session key.
+###
 
 class AJAMClient(BaseClient):
     def __init__(self, *args, **kwargs):
@@ -198,39 +233,251 @@ class AJAMClient(BaseClient):
 
         self._access_method = 'arawman' if self._digest else 'rawman'
         self._protocol = 'https' if self._secure else 'http'       
-        self._baseurl = "%s://%s:%d/" % (self._protocol, self._host, self._port)
-        self._url = urljoin(self._baseurl, os.path.join('/', self._prefix, self._access_method))
 
         self._cookie = SimpleCookie()
 
         super(AJAMClient, self).__postinit__(*args, **kwargs)
 
+        self.login()
+
+        if DEBUG:
+            self._connect_timer = tornado.ioloop.PeriodicCallback(self._print_my_status, 2000)
+            self._connect_timer.start()
+
+    def _check_authenticated(self):
+        if self._authenticated or self._authenticating:
+            return
+
+        return self.login()
+
     def _keepalive_timer_callback(self):
-        print self.active
+        self._check_authenticated()
+        self.command(Request(action='Ping'))
+
+    def _keepalive_timer_ping_callback(self, response):
+        self._command_callback(response)
 
     def _cleanup(self):
         self._keepalive_timer.stop()
         del(self._keepalive_timer)
 
-    def request(self, request):
-        assert isinstance(request, Request)
-        pass
+    def _update_session_cookie(self, response):
+        if 'Set-Cookie' in response.headers:
+            self._cookie.load(response.headers['Set-Cookie'])
+
+    def _get_session_cookie(self):
+        return self._cookie.output(header="", attrs="mansession_id").strip()
+
+    def command(self, req, headers={}):
+        assert isinstance(req, Request)
+
+        if not req in self._requests:
+            self._requests.append(req)
+            self._requests_actionid_map[req.actionid] = req
         
-    def _digest_login_callback(self):
-        print 'supdog'
-        pass
+        url = URL(scheme = self._protocol,
+                    netloc = '%s:%d' % (self._host, self._port),
+                    path = os.path.join('/', self._prefix, self._access_method),
+                    query = req.urlencode(),
+                    fragment = ''
+                    )
 
-    def _basic_login_callback(self):
-        print 'supdog'
-        pass
+        request = tornado.httpclient.HTTPRequest(url = urlunsplit(url),
+                    headers = tornado.httputil.HTTPHeaders(headers),
+                    proxy_host = self._proxy_host,
+                    proxy_port = self._proxy_port,
+                    proxy_username = self._proxy_username,
+                    proxy_password = self._proxy_password
+                    )
 
-    def login(self, request):
-        req = self.__make_login_request()
+        request.headers.add('Cookie', self._get_session_cookie())
+
+        client = tornado.httpclient.AsyncHTTPClient()
+        client.fetch(request, req.callback or self._command_callback)
+
+        return req
+
+    def _digest_login_callback(self, response):
+
+        self._update_session_cookie(response)
+
+        if response.code == 200:
+            self._authenticated = True
+            self._alive = True
+            print response.headers
+            print 'yay'
+            return
+        elif response.code == 401:
+            print 'meh'
+        else:
+            print 'boo'
+            return
+
+        #If 401
+
+        if not 'WWW-Authenticate' in response.headers:
+            raise InterfaceError()
+
+        if not 'Digest' in response.headers['WWW-Authenticate']:
+            raise InterfaceError()
+
+        param_string = response.headers.get('WWW-Authenticate').partition('Digest')[2]
+        param_list = parse_http_list(param_string)
+        params = parse_keqv_list(param_list)
+
+        path = urlsplit(response.effective_url) #asterisk throws query into hash
+        digest_path = "%s?%s" % (path.path, path.query)
+
+        digest_cnonce = uuid.uuid1().hex
+        digest_nc = '%08d' % self._digest_nc 
+        digest_qop = "auth"
+
+        digest_response = md5(":".join([md5(":".join((self._username, params['realm'], self._secret))).hexdigest(),
+                                 params['nonce'],
+                                 digest_nc,
+                                 digest_cnonce,
+                                 digest_qop,
+                                 md5(":".join(('GET', digest_path))).hexdigest()
+                                ])).hexdigest()
+
+
+        headers = {}
+        headers['Authorization'] = 'Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%s, qop="%s", response="%s", opaque="%s", algorithm="%s"' % (
+                                        self._username,
+                                        params['realm'],
+                                        params['nonce'],
+                                        digest_path,
+                                        digest_cnonce,
+                                        digest_nc,
+                                        digest_qop,
+                                        digest_response, 
+                                        params['opaque'],
+                                        params['algorithm']
+                                       )
+
+        self._digest_nc += 1
+
+        self.command(self._authentication_request, headers=headers)
+
+    def _basic_login_callback(self, response):
+        self._update_session_cookie(response)
+        self._command_callback(response)
+
+    def _make_digest_login_request(self, callback=None):
+        return Request(action='UserEvent', userevent='DigestLogin', uuid=self._uuid, callback=callback) #Do a simple ping
+
+    def _command_callback(self, response):
+        for packet_text in response.body.strip().split("\r\n\r\n"):
+            packet = {}
+            for packet_line in packet_text.strip().split("\r\n"):
+                packet_line = packet_line.rstrip()
+                if ':' not in packet_line:
+                    print 'Is weird for now', line
+                
+                key, val = packet_line.split(':', 1)
+                val = val[1:] #quick and dirty left trim value even if it's 0 length
+                packet[key] = val
+
+            if not 'ActionID' in packet:
+                print 'OHNOES'
+                continue
+
+            req = self._request_from_any(packet['ActionID'])
+
+            attr = '_handle_%s_reply' % str(req.action).lower()
+            if hasattr(self, attr):
+                callable = getattr(self, attr)
+                if operator.isCallable(callable):
+                    callable(response, req, packet)
+
+            attr = 'handle_%s_reply' % str(req.action).lower()
+            if hasattr(self, attr):
+                callable = getattr(self, attr)
+                if operator.isCallable(callable):
+                    callable(response, req, packet)
+                    
+            self._requests.remove(req)
+            del(self._requests_actionid_map[packet['ActionID']])
+            
+        print req.action, packet
+
+    def handle_login_reply(self, response, req, packet, *args, **kwargs):
+        if packet['Response'] == 'Success':
+            self._authenticated = True
+            self._alive = True
+
+        return
+
+    def _handle_ping_reply(self, response, req, packet, *args, **kwargs):
+        if response.code != 200:
+            self._authenticated = False
+            self._alive = False
+            return            
+
+        if not response.body:
+            self._alive = False
+            return            
+
+        if 'Response: Success' in response.body:
+            self._alive = True
+
+        elif 'Message: Permission denied' in response.body:
+            self._alive = False
+            self._authenticated = False
+        else:
+            self._alive = False
+
+        return
+
+    def login(self):
+        self._alive = False
+        self._authenticated = False
 
         if self._digest:
-            req.callback = self._digest_login_callback
+            self._authentication_request = self._make_digest_login_request(callback=self._digest_login_callback)
         else:
-            req.callback = self._basic_login_callback
+            self._authentication_request = self._make_basic_login_request(callback=self._basic_login_callback)
+
+        return self.command(self._authentication_request)
+
+    def _print_my_status(self):
+        logging.info('%s: Alive %s' % (self._uuid, self._alive))
+        logging.info('%s: Authenticated %s' % (self._uuid, self._authenticated))
+        logging.info('%s: Authenticating %s' % (self._uuid, self._authenticating))
+        logging.info('%s: Requests %s' % (self._uuid, [x.actionid for x in self._requests]))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 """
@@ -301,7 +548,7 @@ class AJAMClientOld(object):
 
         self._alive = False
         self._authenticated = False
-        self._attempting_authentication = False
+        self._authenticating = False
 
         self._digest_nc = 1
 
@@ -319,11 +566,11 @@ class AJAMClientOld(object):
     def _print_my_status(self):
         logging.info('%s: Alive %s' % (self._uuid, self._alive))
         logging.info('%s: Authenticated %s' % (self._uuid, self._authenticated))
-        logging.info('%s: Authenticating %s' % (self._uuid, self._attempting_authentication))
+        logging.info('%s: Authenticating %s' % (self._uuid, self._authenticating))
 
     def _fresh_request(self, url=None):
         request = tornado.httpclient.HTTPRequest(url or self._url)
-        request.headers = tornado.httputil.HTTPHeaders()
+        request.headers = tornado.httputil.HTTPHeaders()     
         request.headers.add('Cookie', self._get_session_cookie())
         request.proxy_host = self._proxy_host
         request.proxy_port = self._proxy_port
@@ -337,7 +584,7 @@ class AJAMClientOld(object):
         return
 
     def _login_digest(self):
-        self._attempting_authentication = True
+        self._authenticating = True
 
         client = tornado.httpclient.AsyncHTTPClient()
 
@@ -349,7 +596,7 @@ class AJAMClientOld(object):
 
         if not response.body:
             self._alive = False            
-            self._attempting_authentication = False
+            self._authenticating = False
             return 
     
         if not 'WWW-Authenticate' in response.headers:
@@ -390,11 +637,11 @@ class AJAMClientOld(object):
 
         if not response.body:
             self._alive = False            
-            self._attempting_authentication = False
+            self._authenticating = False
             return 
 
         if response.code != 200:
-            self._attempting_authentication = False
+            self._authenticating = False
             return
 
         self._update_session_cookie(response)
@@ -407,7 +654,7 @@ class AJAMClientOld(object):
         return
 
     def _login(self):
-        self._attempting_authentication = True
+        self._authenticating = True
 
         client = tornado.httpclient.AsyncHTTPClient()
 
@@ -421,7 +668,7 @@ class AJAMClientOld(object):
 
         if not response.body:
             self._alive = False
-            self._attempting_authentication = False
+            self._authenticating = False
             return
 
         self._update_session_cookie(response)
@@ -430,7 +677,7 @@ class AJAMClientOld(object):
             self._alive = True
             self._authenticated = True
 
-        self._attempting_authentication = False
+        self._authenticating = False
 
         self._post_login()
     
@@ -450,7 +697,7 @@ class AJAMClientOld(object):
         return self._cookie.output(header="", attrs="mansession_id").strip()
 
     def _check_authenticated(self):
-        if self._authenticated or self._attempting_authentication:
+        if self._authenticated or self._authenticating:
             return
 
         self._login_digest() if self._digest else self._login()
